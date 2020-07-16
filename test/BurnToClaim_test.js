@@ -10,6 +10,7 @@ const {
   txLoggedArgs,
 } = require('./helper/utils')
 
+const HashedTimelockERC20 = artifacts.require('./HashedTimelockERC20.sol')
 const BurnToClaim = artifacts.require('./BurnToClaim.sol')
 const GriffithEC20 = artifacts.require('./helper/GriffithToken.sol')
 
@@ -27,7 +28,7 @@ contract('Burn-To-Claim', accounts => {
   const tokenSupply = 1000
   const initialBalance = 100
 
-  let burnToClaim,token
+  let hashedTimelockERC20,burnToClaim,token
 
   // helper to convert the token to wei 
 function Tokens(n) {
@@ -35,6 +36,7 @@ function Tokens(n) {
 }
 
   before(async () => {
+    hashedTimelockERC20 = await HashedTimelockERC20.new()
     burnToClaim = await BurnToClaim.new()
     token = await GriffithEC20.new(tokenSupply)
     await token.transfer(sender, initialBalance)
