@@ -185,6 +185,16 @@ function Tokens(n) {
     assert.isTrue(contract.withdrawn) // withdrawn set
     assert.isFalse(contract.refunded) // refunded still false
     assert.equal(contract.preimage, hashPair.secret)
+    
+    let senderBalance = await token.balanceOf(sender)
+    let receiverBalance = await token.balanceOf(receiver)
+    let burnAddressBalance = await token.balanceOf(burnAddress)
+    let contractBalance = await token.balanceOf(burnToClaim.address)
+   console.log("Sender Balance = " + senderBalance.toString());
+   console.log("Receiver Balance = " + receiverBalance.toString());
+   console.log("BurnAddress Balance = " + burnAddressBalance.toString());
+   console.log("Contract Balance = " + contractBalance.toString());
+    
   })
 
   it('entryTransaction() should fail if preimage does not hash to hashX', async () => {
