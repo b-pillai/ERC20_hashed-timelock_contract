@@ -21,7 +21,7 @@ import "openzeppelin-solidity/contracts/token/ERC20/ERC20.sol";
  *      withdraw the tokens the sender / creator of the HTLC can get their tokens
  *      back with this function.
  */
-contract BurnToClaim {
+contract BurnToClaimOriginal {
     event HTLCERC20New(
         bytes32 indexed contractId,
         address indexed sender,
