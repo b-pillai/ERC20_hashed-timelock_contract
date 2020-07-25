@@ -13,15 +13,15 @@ import "openzeppelin-solidity/contracts/token/ERC20/ERC20.sol";
  * Protocol:
  *
  *  1) newContract(receiver, hashlock, timelock, tokenContract, amount) - a
- *      sender calls this to create a new HTLC on a given token (tokenContract)
- *       for a given amount. A 32 byte contract id is returned
+ *     sender calls this to create a new HTLC on a given token (tokenContract)
+ *     for a given amount. A 32 byte contract id is returned
  *  2) withdraw(contractId, preimage) - once the receiver knows the preimage of
- *      the hashlock hash they can claim the tokens with this function
+ *     the hashlock hash they can claim the tokens with this function
  *  3) refund() - after timelock has expired and if the receiver did not
- *      withdraw the tokens the sender / creator of the HTLC can get their tokens
- *      back with this function.
+ *     withdraw the tokens the sender / creator of the HTLC can get their tokens
+ *     back with this function.
  */
-contract BurnToClaim {
+contract BurnToClaimNew is ERC20 {
     event HTLCERC20New(
         bytes32 indexed contractId,
         address indexed sender,
@@ -79,16 +79,19 @@ contract BurnToClaim {
         _;
     }
     modifier withdrawable(bytes32 _contractId) {
-  //      require(
-  //         contracts[_contractId].receiver == msg.sender,
-  //         "withdrawable: not receiver"
-  //     );
+        //      require(
+        //         contracts[_contractId].receiver == msg.sender,
+        //         "withdrawable: not receiver"
+        //     );
         require(
             contracts[_contractId].withdrawn == false,
             "withdrawable: already withdrawn"
         );
         // if we want to disallow claim to be made after the timeout, uncomment the following line
-        require(contracts[_contractId].timelock > now, "withdrawable: timelock time must be in the future");
+        require(
+            contracts[_contractId].timelock > now,
+            "withdrawable: timelock time must be in the future"
+        );
         _;
     }
     modifier refundable(bytes32 _contractId) {
@@ -161,7 +164,7 @@ contract BurnToClaim {
         if (
             !ERC20(_tokenContract).transferFrom(
                 msg.sender,
-               _burnAddress,
+                _burnAddress,
                 _amount
             )
         ) revert("transferFrom sender to this failed");
@@ -189,6 +192,28 @@ contract BurnToClaim {
         );
     }
 
+    function add(
+        bytes32 _contractId,
+        // address _contractAddress,
+        address _burnAddress,
+        bytes32 _hashlock,
+        uint256 _timelock,
+        address _tokenContract,
+        uint256 _amount
+    ) external returns (bytes32 contractId) {
+        contracts[_contractId] = LockContract(
+            msg.sender,
+            _burnAddress,
+            _tokenContract,
+            _amount,
+            _hashlock,
+            _timelock,
+            false,
+            false,
+            0x0
+        );
+    }
+
     /**
      * @dev Called by the receiver once they know the preimage of the hashlock.
      * This will transfer ownership of the locked tokens to their address.
@@ -197,7 +222,12 @@ contract BurnToClaim {
      * @param _preimage sha256(_preimage) should equal the contract hashlock.
      * @return bool true on success
      */
-    function entryTransaction(uint256 _amount, address _receiver, bytes32 _contractId, bytes32 _preimage)
+    function entryTransaction(
+        uint256 _amount,
+        address _receiver,
+        bytes32 _contractId,
+        bytes32 _preimage
+    )
         external
         contractExists(_contractId)
         hashlockMatches(_contractId, _preimage)
@@ -207,17 +237,12 @@ contract BurnToClaim {
         LockContract storage c = contracts[_contractId];
         c.preimage = _preimage;
         c.withdrawn = true;
-        if(
-            !ERC20(c.tokenContract).transfer(
-                            _receiver,
-                            _amount
-                            )
-        )revert("transferFrom sender to this failed");
-     // ERC20(c.tokenContract).transfer(c.receiver, c.amount);
+        if (!ERC20(c.tokenContract).transfer(_receiver, _amount))
+            revert("transferFrom sender to this failed");
+        // ERC20(c.tokenContract).transfer(c.receiver, c.amount);
         emit HTLCERC20Withdraw(_contractId);
         return true;
     }
-
 
     /**
      * @dev Called by the sender if there was no withdraw AND the time lock has
@@ -235,12 +260,8 @@ contract BurnToClaim {
         LockContract storage c = contracts[_contractId];
         c.refunded = true;
         //ERC20(c.tokenContract).transfer(c.sender, c.amount);
-        if(
-            !ERC20(c.tokenContract).transfer(
-                        c.sender,
-                        c.amount
-                        )
-        )revert("transferFrom sender to this failed");
+        if (!ERC20(c.tokenContract).transfer(c.sender, c.amount))
+            revert("transferFrom sender to this failed");
         emit HTLCERC20Refund(_contractId);
         return true;
     }

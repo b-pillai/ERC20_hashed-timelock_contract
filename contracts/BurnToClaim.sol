@@ -5,23 +5,20 @@ import "openzeppelin-solidity/contracts/token/ERC20/ERC20.sol";
 /**
  * @title BurnToClaim Contracts on Ethereum ERC20 tokens.
  *
- * This contract provides a way to create and keep HTLCs for ERC20 tokens.
- *
- * See HashedTimelock.sol for a contract that provides the same functions
- * for the native ETH token.
+ * This contracts provides a way to transfer tokens between users across chain.
  *
  * Protocol:
  *
- *  1) newContract(receiver, hashlock, timelock, tokenContract, amount) - a
+ *  1) exitTransaction(receiver, hashlock, timelock, tokenContract, amount) - a
  *      sender calls this to create a new HTLC on a given token (tokenContract)
  *       for a given amount. A 32 byte contract id is returned
- *  2) withdraw(contractId, preimage) - once the receiver knows the preimage of
+ *  2) entryTransaction(contractId, preimage) - once the receiver knows the preimage of
  *      the hashlock hash they can claim the tokens with this function
- *  3) refund() - after timelock has expired and if the receiver did not
+ *  3) reclaimTransaction() - after timelock has expired and if the receiver did not
  *      withdraw the tokens the sender / creator of the HTLC can get their tokens
  *      back with this function.
  */
-contract BurnToClaim_v1 {
+contract BurnToClaim {
     event HTLCERC20New(
         bytes32 indexed contractId,
         address indexed sender,
@@ -79,16 +76,19 @@ contract BurnToClaim_v1 {
         _;
     }
     modifier withdrawable(bytes32 _contractId) {
-  //      require(
-  //         contracts[_contractId].receiver == msg.sender,
-  //         "withdrawable: not receiver"
-  //     );
+        //      require(
+        //         contracts[_contractId].receiver == msg.sender,
+        //         "withdrawable: not receiver"
+        //     );
         require(
             contracts[_contractId].withdrawn == false,
             "withdrawable: already withdrawn"
         );
         // if we want to disallow claim to be made after the timeout, uncomment the following line
-        require(contracts[_contractId].timelock > now, "withdrawable: timelock time must be in the future");
+        require(
+            contracts[_contractId].timelock > now,
+            "withdrawable: timelock time must be in the future"
+        );
         _;
     }
     modifier refundable(bytes32 _contractId) {
@@ -126,8 +126,7 @@ contract BurnToClaim_v1 {
      *                  Refunds can be made after this time.
      * @param _tokenContract ERC20 Token contract address.
      * @param _amount Amount of the token to lock up.
-     * @return contractId Id of the new HTLC. This is needed for subsequent
-     *                    calls.
+     * @return contractId Id of the new HTLC. This is needed for subsequent calls.
      */
     function exitTransaction(
         address _burnAddress,
@@ -161,7 +160,7 @@ contract BurnToClaim_v1 {
         if (
             !ERC20(_tokenContract).transferFrom(
                 msg.sender,
-               _burnAddress,
+                _burnAddress,
                 _amount
             )
         ) revert("transferFrom sender to this failed");
@@ -190,6 +189,38 @@ contract BurnToClaim_v1 {
     }
 
     /**
+     * @dev Add the contract details.
+     * @param _contractId HTLC contract id
+     * @param _burnAddress Receiver of the tokens.
+     * @param _hashlock A sha-2 sha256 hash hashlock.
+     * @param _timelock UNIX epoch seconds time that the lock expires at.
+     *                  Refunds can be made after this time.
+     * @param _tokenContract ERC20 Token contract address.
+     * @param _amount Amount of the token to lock up.
+     */
+    function add(
+        bytes32 _contractId,
+        // address _contractAddress,
+        address _burnAddress,
+        bytes32 _hashlock,
+        uint256 _timelock,
+        address _tokenContract,
+        uint256 _amount
+    ) external {
+        contracts[_contractId] = LockContract(
+            msg.sender,
+            _burnAddress,
+            _tokenContract,
+            _amount,
+            _hashlock,
+            _timelock,
+            false,
+            false,
+            0x0
+        );
+    }
+
+    /**
      * @dev Called by the receiver once they know the preimage of the hashlock.
      * This will transfer ownership of the locked tokens to their address.
      *
@@ -197,7 +228,12 @@ contract BurnToClaim_v1 {
      * @param _preimage sha256(_preimage) should equal the contract hashlock.
      * @return bool true on success
      */
-    function entryTransaction(uint256 _amount, address _receiver, bytes32 _contractId, bytes32 _preimage)
+    function entryTransaction(
+        uint256 _amount,
+        address _receiver,
+        bytes32 _contractId,
+        bytes32 _preimage
+    )
         external
         contractExists(_contractId)
         hashlockMatches(_contractId, _preimage)
@@ -207,17 +243,24 @@ contract BurnToClaim_v1 {
         LockContract storage c = contracts[_contractId];
         c.preimage = _preimage;
         c.withdrawn = true;
-        if(
-            !ERC20(c.tokenContract).transfer(
-                            _receiver,
-                            _amount
-                            )
-        )revert("transferFrom sender to this failed");
-     // ERC20(c.tokenContract).transfer(c.receiver, c.amount);
+        if (!ERC20(c.tokenContract).transfer(_receiver, _amount))
+            revert("transferFrom sender to this failed");
+        // ERC20(c.tokenContract).transfer(c.receiver, c.amount);
         emit HTLCERC20Withdraw(_contractId);
         return true;
     }
 
+    /**
+     * @dev Update the contract details.
+     * @param _contractId HTLC contract id
+     * @param _preimage sha256(_preimage) should equal the contract hashlock.
+     */
+    function update(bytes32 _contractId, bytes32 _preimage) external
+    {
+      LockContract storage c = contracts[_contractId];
+        c.preimage = _preimage;
+        c.withdrawn = true;
+    }
 
     /**
      * @dev Called by the sender if there was no withdraw AND the time lock has
@@ -235,12 +278,8 @@ contract BurnToClaim_v1 {
         LockContract storage c = contracts[_contractId];
         c.refunded = true;
         //ERC20(c.tokenContract).transfer(c.sender, c.amount);
-        if(
-            !ERC20(c.tokenContract).transfer(
-                        c.sender,
-                        c.amount
-                        )
-        )revert("transferFrom sender to this failed");
+        if (!ERC20(c.tokenContract).transfer(c.sender, c.amount))
+            revert("transferFrom sender to this failed");
         emit HTLCERC20Refund(_contractId);
         return true;
     }
