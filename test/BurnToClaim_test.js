@@ -76,8 +76,8 @@ contract('Burn-To-Claim', accounts => {
     // check event logs
     const logArgs = txLoggedArgs(newContractTx)
 
-    const contractId = logArgs.contractId
-    assert(isSha256Hash(contractId))
+    const transactionId = logArgs.transactionId
+    assert(isSha256Hash(transactionId))
 
     assert.equal(logArgs.sender, sender)
     assert.equal(logArgs.receiver, burnAddress) // was receiver
@@ -87,7 +87,7 @@ contract('Burn-To-Claim', accounts => {
     assert.equal(logArgs.timelock, timeLock1Hour)
 
     // check htlc record
-    const contractArr = await burnToClaim.getContract.call(contractId)
+    const contractArr = await burnToClaim.getContract.call(transactionId)
     const contract = htlcERC20ArrayToObj(contractArr)
     assert.equal(contract.sender, sender)
     assert.equal(contract.receiver, burnAddress) // was receiver
@@ -158,10 +158,10 @@ contract('Burn-To-Claim', accounts => {
   it('entryTransaction() should send receiver funds when given the correct secret preimage', async () => {
     const hashPair = newSecretHashPair()
     const newContractTx = await exitTransaction({ hashlock: hashPair.hash })
-    const contractId = txContractId(newContractTx)
+    const transactionId = txContractId(newContractTx)
 
     // receiver calls withdraw with the secret to claim the tokens
-    await burnToClaim.entryTransaction(tokenAmount, receiver, contractId, hashPair.secret, {
+    await burnToClaim.entryTransaction(tokenAmount, receiver, transactionId, hashPair.secret, {
       from: receiver,
     })
 
@@ -172,7 +172,7 @@ contract('Burn-To-Claim', accounts => {
       `receiver doesn't own ${tokenAmount} tokens`
     )
 
-    const contractArr = await burnToClaim.getContract.call(contractId)
+    const contractArr = await burnToClaim.getContract.call(transactionId)
     const contract = htlcERC20ArrayToObj(contractArr)
     assert.isTrue(contract.withdrawn) // withdrawn set
     assert.isFalse(contract.refunded) // refunded still false
@@ -181,12 +181,12 @@ contract('Burn-To-Claim', accounts => {
 
   it('entryTransaction() should fail if preimage does not hash to hashX', async () => {
     const newContractTx = await exitTransaction({})
-    const contractId = txContractId(newContractTx)
+    const transactionId = txContractId(newContractTx)
 
     // receiver calls withdraw with an invalid secret
     const wrongSecret = bufToStr(random32())
     try {
-      await burnToClaim.entryTransaction(tokenAmount, receiver, contractId, wrongSecret, { from: receiver })
+      await burnToClaim.entryTransaction(tokenAmount, receiver, transactionId, wrongSecret, { from: receiver })
       assert.fail('expected failure due to 0 value transferred')
     } catch (err) {
       assert.isTrue(err.message.startsWith(REQUIRE_FAILED_MSG))
@@ -220,14 +220,14 @@ contract('Burn-To-Claim', accounts => {
       hashlock: hashPair.hash,
       timelock: timelock2Seconds,
     })
-    const contractId = txContractId(newContractTx)
+    const transactionId = txContractId(newContractTx)
 
     // wait one second so we move past the timelock time
     return new Promise((resolve, reject) => {
       setTimeout(async () => {
         // attempt to withdraw and check that it is not allowed
         try {
-          await burnToClaim.entryTransaction(tokenAmount, receiver, contractId, hashPair.secret, { from: receiver })
+          await burnToClaim.entryTransaction(tokenAmount, receiver, transactionId, hashPair.secret, { from: receiver })
           reject(
             new Error('expected failure due to withdraw after timelock expired')
           )
@@ -249,7 +249,7 @@ contract('Burn-To-Claim', accounts => {
       timelock: timelock2Seconds,
       hashlock: hashPair.hash,
     })
-    const contractId = txContractId(newContractTx)
+    const transactionId = txContractId(newContractTx)
 
     // wait one second so we move past the timelock time
     return new Promise((resolve, reject) =>
@@ -257,7 +257,7 @@ contract('Burn-To-Claim', accounts => {
         try {
           // attempt to get the refund now we've moved past the timelock time
           const balBefore = await token.balanceOf(sender)
-          await burnToClaim.reclaimTransaction(contractId, { from: sender })
+          await burnToClaim.reclaimTransaction(transactionId, { from: sender })
 
           // Check tokens returned to the sender
           await assertTokenBal(
@@ -266,7 +266,7 @@ contract('Burn-To-Claim', accounts => {
             `sender balance unexpected`
           )
 
-          const contractArr = await burnToClaim.getContract.call(contractId)
+          const contractArr = await burnToClaim.getContract.call(transactionId)
           const contract = htlcERC20ArrayToObj(contractArr)
           assert.isTrue(contract.refunded)
           assert.isFalse(contract.withdrawn)
@@ -280,9 +280,9 @@ contract('Burn-To-Claim', accounts => {
 
   it('reclaimTransaction() should fail before the timelock expiry', async () => {
     const newContractTx = await exitTransaction()
-    const contractId = txContractId(newContractTx)
+    const transactionId = txContractId(newContractTx)
     try {
-      await burnToClaim.reclaimTransaction(contractId, { from: sender })
+      await burnToClaim.reclaimTransaction(transactionId, { from: sender })
       assert.fail('expected failure due to timelock')
     } catch (err) {
       assert.isTrue(err.message.startsWith(REQUIRE_FAILED_MSG))

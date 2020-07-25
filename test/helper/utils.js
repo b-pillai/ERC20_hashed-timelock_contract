@@ -29,7 +29,7 @@ const nowSeconds = () => Math.floor(Date.now() / 1000)
 const defaultGasPrice = 100000000000 // truffle fixed gas price
 const txGas = (txReceipt, gasPrice = defaultGasPrice) => web3.utils.toBN(txReceipt.receipt.gasUsed * gasPrice)
 const txLoggedArgs = txReceipt => txReceipt.logs[0].args
-const txContractId = txReceipt => txLoggedArgs(txReceipt).contractId
+const txContractId = txReceipt => txLoggedArgs(txReceipt).transactionId
 
 const htlcArrayToObj = c => {
   return {

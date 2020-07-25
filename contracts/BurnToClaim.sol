@@ -10,14 +10,14 @@ import "openzeppelin-solidity/contracts/token/ERC20/ERC20.sol";
  * Protocol:
  *  1) exitTransaction(burnAddress, hashlock, timelock, tokenContract, amount)
  *     sender calls this to burn the token to a burnAdddress, returns contract id.
- *  2) entryTransaction(contractId, preimage) - once the receiver knows the preimage of
+ *  2) entryTransaction(transactionId, preimage) - once the receiver knows the preimage of
  *     the hashlock hash they can claim the tokens with this function, with in the timelock.
- *  3) reclaimTransaction(contractId) - after timelock has expired and if the receiver did not
+ *  3) reclaimTransaction(transactionId) - after timelock has expired and if the receiver did not
  *     withdraw the tokens the sender can get their tokens back with this function.
  */
 contract BurnToClaim {
-    event HTLCERC20New(
-        bytes32 indexed contractId,
+    event exitTransactionEvent(
+        bytes32 indexed transactionId,
         address indexed sender,
         address indexed receiver,
         address tokenContract,
@@ -25,8 +25,8 @@ contract BurnToClaim {
         bytes32 hashlock,
         uint256 timelock
     );
-    event HTLCERC20Withdraw(bytes32 indexed contractId);
-    event HTLCERC20Refund(bytes32 indexed contractId);
+    event entryTransactionEvent(bytes32 indexed transactionId);
+    event reclaimTransactionEvent(bytes32 indexed transactionId);
 
     struct LockContract {
         address sender;
@@ -53,7 +53,7 @@ contract BurnToClaim {
      *                  Refunds can be made after this time.
      * @param _tokenContract ERC20 Token contract address.
      * @param _amount Amount of the token to lock up.
-     * @return contractId Id of the new HTLC. This is needed for subsequent calls.
+     * @return transactionId Id of the new HTLC. This is needed for subsequent calls.
      */
 
     function exitTransaction(
@@ -62,7 +62,7 @@ contract BurnToClaim {
         uint256 _timelock,
         address _tokenContract,
         uint256 _amount
-    ) external returns (bytes32 contractId) {
+    ) external returns (bytes32 transactionId) {
         require(_amount > 0, "token amount must be > 0");
         require(
             ERC20(_tokenContract).allowance(msg.sender, address(this)) >=
@@ -71,7 +71,7 @@ contract BurnToClaim {
         );
         require(_timelock > now, "timelock time must be in the future");
 
-        contractId = sha256(
+        transactionId = sha256(
             abi.encodePacked(
                 msg.sender,
                 _burnAddress,
@@ -85,7 +85,7 @@ contract BurnToClaim {
         // Reject if a contract already exists with the same parameters. The
         // sender must change one of these parameters (ideally providing a
         // different _hashlock).
-        if (haveContract(contractId)) revert("Contract already exists");
+        if (haveContract(transactionId)) revert("Contract already exists");
 
         // burn the token to a burn address
         if (
@@ -96,7 +96,7 @@ contract BurnToClaim {
             )
         ) revert("transferFrom sender to this failed");
 
-        contracts[contractId] = LockContract(
+        contracts[transactionId] = LockContract(
             msg.sender,
             _burnAddress,
             _tokenContract,
@@ -108,8 +108,8 @@ contract BurnToClaim {
             0x0
         );
 
-        emit HTLCERC20New(
-            contractId,
+        emit exitTransactionEvent(
+            transactionId,
             msg.sender,
             _burnAddress,
             _tokenContract,
@@ -121,7 +121,7 @@ contract BurnToClaim {
 
     /**
      * @dev Add the contract details on the other chain.
-     * @param _contractId HTLC contract id
+     * @param _transactionId HTLC contract id
      * @param _burnAddress Receiver of the tokens.
      * @param _hashlock A sha-2 sha256 hash hashlock.
      * @param _timelock UNIX epoch seconds time that the lock expires at.
@@ -130,7 +130,7 @@ contract BurnToClaim {
      * @param _amount Amount of the token to lock up.
      */
     function add(
-        bytes32 _contractId,
+        bytes32 _transactionId,
         // address _contractAddress,
         address _burnAddress,
         bytes32 _hashlock,
@@ -138,7 +138,7 @@ contract BurnToClaim {
         address _tokenContract,
         uint256 _amount
     ) external {
-        contracts[_contractId] = LockContract(
+        contracts[_transactionId] = LockContract(
             msg.sender,
             _burnAddress,
             _tokenContract,
@@ -155,47 +155,47 @@ contract BurnToClaim {
      * @dev Called by the receiver once they know the preimage of the hashlock.
      * This will transfer ownership of the locked tokens to their address.
      *
-     * @param _contractId Id of the HTLC.
+     * @param _transactionId Id of the HTLC.
      * @param _preimage sha256(_preimage) should equal the contract hashlock.
      * @return bool true on success
      */
     function entryTransaction(
         uint256 _amount,
         address _receiver,
-        bytes32 _contractId,
+        bytes32 _transactionId,
         bytes32 _preimage
     ) external returns (bool) {
-        require(haveContract(_contractId), "contractId does not exist");
+        require(haveContract(_transactionId), "transactionId does not exist");
         require(
-            contracts[_contractId].hashlock ==
+            contracts[_transactionId].hashlock ==
                 sha256(abi.encodePacked(_preimage)),
             "hashlock hash does not match"
         );
         require(
-            contracts[_contractId].withdrawn == false,
+            contracts[_transactionId].withdrawn == false,
             "withdrawable: already withdrawn"
         );
         require(
-            contracts[_contractId].timelock > now,
+            contracts[_transactionId].timelock > now,
             "withdrawable: timelock time must be in the future"
         );
 
-        LockContract storage c = contracts[_contractId];
+        LockContract storage c = contracts[_transactionId];
         c.preimage = _preimage;
         c.withdrawn = true;
         if (!ERC20(c.tokenContract).transfer(_receiver, _amount))
             revert("transferFrom sender to this failed");
-        emit HTLCERC20Withdraw(_contractId);
+        emit entryTransactionEvent(_transactionId);
         return true;
     }
 
     /**
      * @dev Update the contract details.
-     * @param _contractId HTLC contract id
+     * @param _transactionId HTLC contract id
      * @param _preimage sha256(_preimage) should equal the contract hashlock.
      */
-    function update(bytes32 _contractId, bytes32 _preimage) external {
-        LockContract storage c = contracts[_contractId];
+    function update(bytes32 _transactionId, bytes32 _preimage) external {
+        LockContract storage c = contracts[_transactionId];
         c.preimage = _preimage;
         c.withdrawn = true;
     }
@@ -204,41 +204,41 @@ contract BurnToClaim {
      * @dev Called by the sender if there was no withdraw AND the time lock has
      * expired. This will restore ownership of the tokens to the sender.
      *
-     * @param _contractId Id of HTLC to refund from.
+     * @param _transactionId Id of HTLC to refund from.
      * @return bool true on success
      */
-    function reclaimTransaction(bytes32 _contractId) external returns (bool) {
-        require(haveContract(_contractId), "contractId does not exist");
+    function reclaimTransaction(bytes32 _transactionId) external returns (bool) {
+        require(haveContract(_transactionId), "transactionId does not exist");
         require(
-            contracts[_contractId].sender == msg.sender,
+            contracts[_transactionId].sender == msg.sender,
             "refundable: not sender"
         );
         require(
-            contracts[_contractId].refunded == false,
+            contracts[_transactionId].refunded == false,
             "refundable: already refunded"
         );
         require(
-            contracts[_contractId].withdrawn == false,
+            contracts[_transactionId].withdrawn == false,
             "refundable: already withdrawn"
         );
         require(
-            contracts[_contractId].timelock <= now,
+            contracts[_transactionId].timelock <= now,
             "refundable: timelock not yet passed"
         );
-        LockContract storage c = contracts[_contractId];
+        LockContract storage c = contracts[_transactionId];
         c.refunded = true;
         if (!ERC20(c.tokenContract).transfer(c.sender, c.amount))
             revert("transferFrom sender to this failed");
-        emit HTLCERC20Refund(_contractId);
+        emit reclaimTransactionEvent(_transactionId);
         return true;
     }
 
     /**
      * @dev Get contract details.
-     * @param _contractId HTLC contract id
-     * @return All parameters in struct LockContract for _contractId HTLC
+     * @param _transactionId HTLC contract id
+     * @return All parameters in struct LockContract for _transactionId HTLC
      */
-    function getContract(bytes32 _contractId)
+    function getContract(bytes32 _transactionId)
         public
         view
         returns (
@@ -253,7 +253,7 @@ contract BurnToClaim {
             bytes32 preimage
         )
     {
-        if (haveContract(_contractId) == false)
+        if (haveContract(_transactionId) == false)
             return (
                 address(0),
                 address(0),
@@ -265,7 +265,7 @@ contract BurnToClaim {
                 false,
                 0
             );
-        LockContract storage c = contracts[_contractId];
+        LockContract storage c = contracts[_transactionId];
         return (
             c.sender,
             c.receiver,
@@ -280,14 +280,14 @@ contract BurnToClaim {
     }
 
     /**
-     * @dev Is there a contract with id _contractId.
-     * @param _contractId Id into contracts mapping.
+     * @dev Is there a contract with id _transactionId.
+     * @param _transactionId Id into contracts mapping.
      */
-    function haveContract(bytes32 _contractId)
+    function haveContract(bytes32 _transactionId)
         internal
         view
         returns (bool exists)
     {
-        exists = (contracts[_contractId].sender != address(0));
+        exists = (contracts[_transactionId].sender != address(0));
     }
 }

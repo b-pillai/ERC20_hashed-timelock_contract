@@ -90,14 +90,14 @@ contract('Cross-Blockchain test', accounts => {
         }
       )
 
-      const contractId = txContractId(newContractTx)
+      const transactionId = txContractId(newContractTx)
       // wait one second so we move past the timelock time
       return new Promise((resolve, reject) =>
         setTimeout(async () => {
           try {
             // attempt to get the refund now we've moved past the timelock time
             const balBefore = await token.balanceOf(sender)
-            await burnToClaim.reclaimTransaction(contractId, { from: sender })
+            await burnToClaim.reclaimTransaction(transactionId, { from: sender })
 
             // Check tokens returned to the sender
             await assertTokenBal(
@@ -106,7 +106,7 @@ contract('Cross-Blockchain test', accounts => {
               `sender balance unexpected`
             )
 
-            const contractArr = await burnToClaim.getContract.call(contractId)
+            const contractArr = await burnToClaim.getContract.call(transactionId)
             const contract = htlcERC20ArrayToObj(contractArr)
             assert.isTrue(contract.refunded)
             assert.isFalse(contract.withdrawn)
@@ -137,10 +137,10 @@ contract('Cross-Blockchain test', accounts => {
           from: sender,
         }
       )
-      const contractId = txContractId(sourceChainContractTx)
+      const transactionId = txContractId(sourceChainContractTx)
       // update the details on the destination chain
       const destinationChainContractTx = await destinationChain.add(
-        contractId,
+        transactionId,
         burnAddress,
         hashPair.hash,
         timelock2Seconds,
@@ -153,7 +153,7 @@ contract('Cross-Blockchain test', accounts => {
 
       // update the database on source chian
       await sourceChain.update(
-        contractId,
+        transactionId,
         hashPair.secret,
         {
           from: receiver
@@ -164,7 +164,7 @@ contract('Cross-Blockchain test', accounts => {
       await destinationChain.entryTransaction(
         tokenAmount,
         receiver,
-        contractId,
+        transactionId,
         hashPair.secret, {
         from: receiver,
       })
@@ -176,7 +176,7 @@ contract('Cross-Blockchain test', accounts => {
         `receiver doesn't own ${tokenAmount} tokens`
       )
 
-      const contractArr = await destinationChain.getContract.call(contractId)
+      const contractArr = await destinationChain.getContract.call(transactionId)
       const contract = htlcERC20ArrayToObj(contractArr)
       assert.isTrue(contract.withdrawn) // withdrawn set
       assert.isFalse(contract.refunded) // refunded still false
