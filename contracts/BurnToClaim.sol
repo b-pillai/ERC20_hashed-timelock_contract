@@ -8,15 +8,12 @@ import "openzeppelin-solidity/contracts/token/ERC20/ERC20.sol";
  * This contracts provides a way to transfer tokens between users across chain.
  *
  * Protocol:
- *
- *  1) exitTransaction(receiver, hashlock, timelock, tokenContract, amount) - a
- *      sender calls this to create a new HTLC on a given token (tokenContract)
- *       for a given amount. A 32 byte contract id is returned
+ *  1) exitTransaction(burnAddress, hashlock, timelock, tokenContract, amount)
+ *     sender calls this to burn the token to a burnAdddress, returns contract id.
  *  2) entryTransaction(contractId, preimage) - once the receiver knows the preimage of
- *      the hashlock hash they can claim the tokens with this function
- *  3) reclaimTransaction() - after timelock has expired and if the receiver did not
- *      withdraw the tokens the sender / creator of the HTLC can get their tokens
- *      back with this function.
+ *     the hashlock hash they can claim the tokens with this function, with in the timelock.
+ *  3) reclaimTransaction(contractId) - after timelock has expired and if the receiver did not
+ *     withdraw the tokens the sender can get their tokens back with this function.
  */
 contract BurnToClaim {
     event HTLCERC20New(
@@ -45,82 +42,12 @@ contract BurnToClaim {
         bytes32 preimage;
     }
 
-    modifier tokensTransferable(
-        address _token,
-        address _sender,
-        uint256 _amount
-    ) {
-        require(_amount > 0, "token amount must be > 0");
-        require(
-            ERC20(_token).allowance(_sender, address(this)) >= _amount,
-            "token allowance must be >= amount"
-        );
-        _;
-    }
-    modifier futureTimelock(uint256 _time) {
-        // only requirement is the timelock time is after the last blocktime (now).
-        // probably want something a bit further in the future then this.
-        // but this is still a useful sanity check:
-        require(_time > now, "timelock time must be in the future");
-        _;
-    }
-    modifier contractExists(bytes32 _contractId) {
-        require(haveContract(_contractId), "contractId does not exist");
-        _;
-    }
-    modifier hashlockMatches(bytes32 _contractId, bytes32 _x) {
-        require(
-            contracts[_contractId].hashlock == sha256(abi.encodePacked(_x)),
-            "hashlock hash does not match"
-        );
-        _;
-    }
-    modifier withdrawable(bytes32 _contractId) {
-        //      require(
-        //         contracts[_contractId].receiver == msg.sender,
-        //         "withdrawable: not receiver"
-        //     );
-        require(
-            contracts[_contractId].withdrawn == false,
-            "withdrawable: already withdrawn"
-        );
-        // if we want to disallow claim to be made after the timeout, uncomment the following line
-        require(
-            contracts[_contractId].timelock > now,
-            "withdrawable: timelock time must be in the future"
-        );
-        _;
-    }
-    modifier refundable(bytes32 _contractId) {
-        require(
-            contracts[_contractId].sender == msg.sender,
-            "refundable: not sender"
-        );
-        require(
-            contracts[_contractId].refunded == false,
-            "refundable: already refunded"
-        );
-        require(
-            contracts[_contractId].withdrawn == false,
-            "refundable: already withdrawn"
-        );
-        require(
-            contracts[_contractId].timelock <= now,
-            "refundable: timelock not yet passed"
-        );
-        _;
-    }
-
     mapping(bytes32 => LockContract) contracts;
 
     /**
-     * @dev Sender / Payer sets up a new hash time lock contract depositing the
-     * funds and providing the reciever and terms.
-     *
-     * NOTE: _receiver must first call approve() on the token contract.
-     *       See allowance check in tokensTransferable modifier.
-
-     * @param _burnAddress Receiver of the tokens.
+     * @dev Sender sets up the hash timelock burn contract.
+     * NOTE: sender must first call the approve() function on the token contract.
+     * @param _burnAddress Burn Address.
      * @param _hashlock A sha-2 sha256 hash hashlock.
      * @param _timelock UNIX epoch seconds time that the lock expires at.
      *                  Refunds can be made after this time.
@@ -128,18 +55,22 @@ contract BurnToClaim {
      * @param _amount Amount of the token to lock up.
      * @return contractId Id of the new HTLC. This is needed for subsequent calls.
      */
+
     function exitTransaction(
         address _burnAddress,
         bytes32 _hashlock,
         uint256 _timelock,
         address _tokenContract,
         uint256 _amount
-    )
-        external
-        tokensTransferable(_tokenContract, msg.sender, _amount)
-        futureTimelock(_timelock)
-        returns (bytes32 contractId)
-    {
+    ) external returns (bytes32 contractId) {
+        require(_amount > 0, "token amount must be > 0");
+        require(
+            ERC20(_tokenContract).allowance(msg.sender, address(this)) >=
+                _amount,
+            "token allowance must be >= amount"
+        );
+        require(_timelock > now, "timelock time must be in the future");
+
         contractId = sha256(
             abi.encodePacked(
                 msg.sender,
@@ -189,7 +120,7 @@ contract BurnToClaim {
     }
 
     /**
-     * @dev Add the contract details.
+     * @dev Add the contract details on the other chain.
      * @param _contractId HTLC contract id
      * @param _burnAddress Receiver of the tokens.
      * @param _hashlock A sha-2 sha256 hash hashlock.
@@ -233,19 +164,27 @@ contract BurnToClaim {
         address _receiver,
         bytes32 _contractId,
         bytes32 _preimage
-    )
-        external
-        contractExists(_contractId)
-        hashlockMatches(_contractId, _preimage)
-        withdrawable(_contractId)
-        returns (bool)
-    {
+    ) external returns (bool) {
+        require(haveContract(_contractId), "contractId does not exist");
+        require(
+            contracts[_contractId].hashlock ==
+                sha256(abi.encodePacked(_preimage)),
+            "hashlock hash does not match"
+        );
+        require(
+            contracts[_contractId].withdrawn == false,
+            "withdrawable: already withdrawn"
+        );
+        require(
+            contracts[_contractId].timelock > now,
+            "withdrawable: timelock time must be in the future"
+        );
+
         LockContract storage c = contracts[_contractId];
         c.preimage = _preimage;
         c.withdrawn = true;
         if (!ERC20(c.tokenContract).transfer(_receiver, _amount))
             revert("transferFrom sender to this failed");
-        // ERC20(c.tokenContract).transfer(c.receiver, c.amount);
         emit HTLCERC20Withdraw(_contractId);
         return true;
     }
@@ -255,9 +194,8 @@ contract BurnToClaim {
      * @param _contractId HTLC contract id
      * @param _preimage sha256(_preimage) should equal the contract hashlock.
      */
-    function update(bytes32 _contractId, bytes32 _preimage) external
-    {
-      LockContract storage c = contracts[_contractId];
+    function update(bytes32 _contractId, bytes32 _preimage) external {
+        LockContract storage c = contracts[_contractId];
         c.preimage = _preimage;
         c.withdrawn = true;
     }
@@ -269,15 +207,26 @@ contract BurnToClaim {
      * @param _contractId Id of HTLC to refund from.
      * @return bool true on success
      */
-    function reclaimTransaction(bytes32 _contractId)
-        external
-        contractExists(_contractId)
-        refundable(_contractId)
-        returns (bool)
-    {
+    function reclaimTransaction(bytes32 _contractId) external returns (bool) {
+        require(haveContract(_contractId), "contractId does not exist");
+        require(
+            contracts[_contractId].sender == msg.sender,
+            "refundable: not sender"
+        );
+        require(
+            contracts[_contractId].refunded == false,
+            "refundable: already refunded"
+        );
+        require(
+            contracts[_contractId].withdrawn == false,
+            "refundable: already withdrawn"
+        );
+        require(
+            contracts[_contractId].timelock <= now,
+            "refundable: timelock not yet passed"
+        );
         LockContract storage c = contracts[_contractId];
         c.refunded = true;
-        //ERC20(c.tokenContract).transfer(c.sender, c.amount);
         if (!ERC20(c.tokenContract).transfer(c.sender, c.amount))
             revert("transferFrom sender to this failed");
         emit HTLCERC20Refund(_contractId);

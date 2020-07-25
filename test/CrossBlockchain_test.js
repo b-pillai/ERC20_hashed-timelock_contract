@@ -20,7 +20,7 @@ const hourSeconds = 3600
 const timeLock1Hour = nowSeconds() + hourSeconds
 const tokenAmount = 5
 
-contract('Cross-Blockchain', accounts => {
+contract('Cross-Blockchain test', accounts => {
   const sender = accounts[1]
   const receiver = accounts[2]
   const burnAddress = accounts[3]

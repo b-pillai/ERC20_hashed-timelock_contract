@@ -1,12 +1,12 @@
 {
-  "name": "ethereum-htlc",
+  "name": "burn-to-claim",
   "version": "0.0.11",
-  "description": "Hashed Timelock Contracts for Ethereum",
+  "description": "Burn-to-claim a cross-blockchan contracts for Ethereum",
   "main": "truffle.js",
   "license": "GPL-3.0",
-  "repository": "chatch/hashed-timelock-contract-ethereum",
+  "repository": "___addrepoName",
   "bugs": {
-    "url": "https://github.com/chatch/hashed-timelock-contract-ethereum/issues"
+    "url": "https://github.com/...."
   },
   "directories": {
     "doc": "docs",
@@ -20,7 +20,7 @@
   },
   "keywords": [
     "ethereum",
-    "hashed-timelock-contract",
+    "burn-to-claim-contract",
     "solidity",
     "smart-contract"
   ],
