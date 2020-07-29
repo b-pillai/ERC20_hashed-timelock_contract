@@ -1,4 +1,4 @@
-
+/* 
 const { assertEqualBN } = require('./helper/assert')
 const {
   bufToStr,
@@ -349,3 +349,4 @@ contract('Burn-To-Claim', accounts => {
     }
   }
 })
+ */

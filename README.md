@@ -95,6 +95,7 @@ Compiling your contracts...
     √ reclaimTransaction() should pass after timelock expiry (2567ms)
     √ reclaimTransaction() should fail before the timelock expiry (347ms)
     √ getContract() returns empty record when contract doesn't exist (81ms)
+    
 ````
 # To-do list on this project
 
