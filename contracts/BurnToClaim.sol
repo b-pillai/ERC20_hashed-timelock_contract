@@ -28,10 +28,11 @@ contract BurnToClaim {
     event entryTransactionEvent(bytes32 indexed transactionId);
     event reclaimTransactionEvent(bytes32 indexed transactionId);
 
-    struct LockContract {
+    struct BurnTokenData {
         address sender;
         address receiver;
-        address tokenContract;
+        //  address crossChainContract; // contract address of the crossChians
+        address tokenContract; // Base token contract address
         uint256 amount;
         bytes32 hashlock;
         // locked UNTIL this time. Unit depends on consensus algorithm.
@@ -41,8 +42,26 @@ contract BurnToClaim {
         bool refunded;
         bytes32 preimage;
     }
+    // burned tokens data
+    mapping(bytes32 => BurnTokenData) burnTokenData;
 
-    mapping(bytes32 => LockContract) contracts;
+    struct CrosschainAddress {
+        address contractAddress;
+        bool isExit;
+    }
+    // address of the other participating crossBlockchain contracts
+    mapping(address => CrosschainAddress) crosschainAddress;
+
+    function registerContract(address contractAddress) external {
+        require(
+            contractAddress != address(0),
+            "contract address must not be zero address"
+        );
+        crosschainAddress[contractAddress] = CrosschainAddress(
+            contractAddress,
+            true
+        );
+    }
 
     /**
      * @dev Sender sets up the hash timelock burn contract.
@@ -57,6 +76,7 @@ contract BurnToClaim {
      */
 
     function exitTransaction(
+        //  address _recipentContractAddress,
         address _burnAddress,
         bytes32 _hashlock,
         uint256 _timelock,
@@ -96,9 +116,10 @@ contract BurnToClaim {
             )
         ) revert("transferFrom sender to this failed");
 
-        contracts[transactionId] = LockContract(
+        burnTokenData[transactionId] = BurnTokenData(
             msg.sender,
             _burnAddress,
+            //  _recipentContractAddress,
             _tokenContract,
             _amount,
             _hashlock,
@@ -121,26 +142,31 @@ contract BurnToClaim {
 
     /**
      * @dev Add the contract details on the other chain.
-     * @param _transactionId HTLC contract id
-     * @param _burnAddress Receiver of the tokens.
-     * @param _hashlock A sha-2 sha256 hash hashlock.
+     * @param _transactionId the burn transaction id
+     * @param _burnAddress Receiver of the tokens
+     * @param _hashlock A sha-2 sha256 hash of the secreat key.
      * @param _timelock UNIX epoch seconds time that the lock expires at.
      *                  Refunds can be made after this time.
      * @param _tokenContract ERC20 Token contract address.
      * @param _amount Amount of the token to lock up.
      */
     function add(
+        address _crosschainContractAddress,
         bytes32 _transactionId,
-        // address _contractAddress,
         address _burnAddress,
         bytes32 _hashlock,
         uint256 _timelock,
-        address _tokenContract,
+        address _tokenContract, // base token contract
         uint256 _amount
     ) external {
-        contracts[_transactionId] = LockContract(
+        require(
+            crosschainAddress[_crosschainContractAddress].isExit,
+            "Add corssChain data contract address not exit"
+        );
+        burnTokenData[_transactionId] = BurnTokenData(
             msg.sender,
             _burnAddress,
+            //  _recipentContractAddress,
             _tokenContract,
             _amount,
             _hashlock,
@@ -160,6 +186,7 @@ contract BurnToClaim {
      * @return bool true on success
      */
     function entryTransaction(
+        //  address _recipentContractAddress,
         uint256 _amount,
         address _receiver,
         bytes32 _transactionId,
@@ -167,20 +194,20 @@ contract BurnToClaim {
     ) external returns (bool) {
         require(haveContract(_transactionId), "transactionId does not exist");
         require(
-            contracts[_transactionId].hashlock ==
+            burnTokenData[_transactionId].hashlock ==
                 sha256(abi.encodePacked(_preimage)),
             "hashlock hash does not match"
         );
         require(
-            contracts[_transactionId].withdrawn == false,
+            burnTokenData[_transactionId].withdrawn == false,
             "withdrawable: already withdrawn"
         );
         require(
-            contracts[_transactionId].timelock > now,
+            burnTokenData[_transactionId].timelock > now,
             "withdrawable: timelock time must be in the future"
         );
 
-        LockContract storage c = contracts[_transactionId];
+        BurnTokenData storage c = burnTokenData[_transactionId];
         c.preimage = _preimage;
         c.withdrawn = true;
         if (!ERC20(c.tokenContract).transfer(_receiver, _amount))
@@ -194,8 +221,12 @@ contract BurnToClaim {
      * @param _transactionId HTLC contract id
      * @param _preimage sha256(_preimage) should equal the contract hashlock.
      */
-    function update(bytes32 _transactionId, bytes32 _preimage) external {
-        LockContract storage c = contracts[_transactionId];
+    function update(address _crosschainContractAddress, bytes32 _transactionId, bytes32 _preimage) external {
+        require(
+            crosschainAddress[_crosschainContractAddress].isExit,
+            "Update corssChain data contract address not exit"
+        );
+        BurnTokenData storage c = burnTokenData[_transactionId];
         c.preimage = _preimage;
         c.withdrawn = true;
     }
@@ -207,25 +238,29 @@ contract BurnToClaim {
      * @param _transactionId Id of HTLC to refund from.
      * @return bool true on success
      */
-    function reclaimTransaction(bytes32 _transactionId) external returns (bool) {
+    function reclaimTransaction(bytes32 _transactionId)
+        external
+        returns (bool)
+    {
         require(haveContract(_transactionId), "transactionId does not exist");
         require(
-            contracts[_transactionId].sender == msg.sender,
+            burnTokenData[_transactionId].sender == msg.sender,
             "refundable: not sender"
         );
         require(
-            contracts[_transactionId].refunded == false,
+            burnTokenData[_transactionId].refunded == false,
             "refundable: already refunded"
         );
         require(
-            contracts[_transactionId].withdrawn == false,
+            burnTokenData[_transactionId].withdrawn == false,
             "refundable: already withdrawn"
         );
         require(
-            contracts[_transactionId].timelock <= now,
+            burnTokenData[_transactionId].timelock <= now,
             "refundable: timelock not yet passed"
         );
-        LockContract storage c = contracts[_transactionId];
+
+        BurnTokenData storage c = burnTokenData[_transactionId];
         c.refunded = true;
         if (!ERC20(c.tokenContract).transfer(c.sender, c.amount))
             revert("transferFrom sender to this failed");
@@ -244,6 +279,7 @@ contract BurnToClaim {
         returns (
             address sender,
             address receiver,
+            //  address crossChainContract,
             address tokenContract,
             uint256 amount,
             bytes32 hashlock,
@@ -257,6 +293,7 @@ contract BurnToClaim {
             return (
                 address(0),
                 address(0),
+                //   address(0),
                 address(0),
                 0,
                 0,
@@ -265,10 +302,11 @@ contract BurnToClaim {
                 false,
                 0
             );
-        LockContract storage c = contracts[_transactionId];
+        BurnTokenData storage c = burnTokenData[_transactionId];
         return (
             c.sender,
             c.receiver,
+            //  c.crossChainContract,
             c.tokenContract,
             c.amount,
             c.hashlock,
@@ -288,6 +326,6 @@ contract BurnToClaim {
         view
         returns (bool exists)
     {
-        exists = (contracts[_transactionId].sender != address(0));
+        exists = (burnTokenData[_transactionId].sender != address(0));
     }
 }

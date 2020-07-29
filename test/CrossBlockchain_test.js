@@ -39,6 +39,9 @@ contract('Cross-Blockchain test', accounts => {
     burnToClaim = await BurnToClaim.new()
     sourceChain = await BurnToClaim.new()
     destinationChain = await BurnToClaim.new()
+    await sourceChain.registerContract(destinationChain.address);
+    await destinationChain.registerContract(sourceChain.address);
+    await burnToClaim.registerContract(burnToClaim.address);
     // have the total supply
     token = await GriffithEC20.new(tokenSupply)
     // transfer initialBalances
@@ -75,7 +78,7 @@ contract('Cross-Blockchain test', accounts => {
     })
   })
 
-  /*   describe('Unit test scenario 2 - burn and claim on the same chain', function () {
+     describe('Unit test scenario 2 - burn and claim on the same chain', function () {
       it('make a exitTransaction and after timelock expiry make a reclaimTransaction', async () => {
         const hashPair = newSecretHashPair()
         const curBlock = await web3.eth.getBlock('latest')
@@ -119,7 +122,7 @@ contract('Cross-Blockchain test', accounts => {
           }, 2000)
         )
       })
-    })// end Test Scenario 1   */
+    })// end Test Scenario 1   
 
 
   var EXPERIMENT_NAME = "Exp #01";
@@ -194,7 +197,7 @@ contract('Cross-Blockchain test', accounts => {
 
 
 
-/*   describe('Unit Test scenario 3 - burn and claim on differnet contract', function () {
+   describe('Unit Test scenario 3 - burn and claim on differnet contract', function () {
     it('burn on source chain and reclaim on destination chain', async () => {
       const hashPair = newSecretHashPair()
       const curBlock = await web3.eth.getBlock('latest')
@@ -215,6 +218,7 @@ contract('Cross-Blockchain test', accounts => {
       const transactionId = txContractId(sourceChainContractTx)
       // update the details on the destination chain
       const destinationChainContractTx = await destinationChain.add(
+        sourceChain.address,
         transactionId,
         burnAddress,
         hashPair.hash,
@@ -228,6 +232,7 @@ contract('Cross-Blockchain test', accounts => {
 
       // update the database on source chian
       await sourceChain.update(
+        destinationChain.address,
         transactionId,
         hashPair.secret,
         {
@@ -259,7 +264,7 @@ contract('Cross-Blockchain test', accounts => {
     })
   }); // end of unit test 3
 
- */
+ 
 
 
 
